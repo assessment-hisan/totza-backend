@@ -3,10 +3,11 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import authRoutes from "./src/routes/auth.js"
-import projectRoutes from './src/routes/projects.js';
-import expenseRoutes from './src/routes/expenses.js';
-import projectExpenses from "./src/routes/projectExpenses.js"
-
+import personal from "./src/routes/personalTransactionRoutes.js"
+import company from "./src/routes/companyTransactionRoutes.js"
+import accountCategory from "./src/routes/small/accountCategoryRoutes.js"
+import item from './src/routes/small/itemRoutes.js'
+import Vendor from './src/routes/small/vendorRoutes.js'
 dotenv.config();
 
 const app = express();
@@ -17,9 +18,12 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/expenses', expenseRoutes);
-app.use("/api/project-expenses", projectExpenses)
+app.use('/personal', personal )
+app.use('/company', company)
+app.use('/account', accountCategory)
+app.use('/vendor', Vendor)
+app.use('/item', item)
+// app.use("/vendor")
 // Root Route
 app.get('/', (req, res) => {
   res.send('Totza Backend is running...');

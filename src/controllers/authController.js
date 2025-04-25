@@ -1,25 +1,38 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from "../models/User.js"
-
+import AccountCategory from '../models/AccountCategory.js';
 // Register User
 export const registerUser = async (req, res) => {
     const { name, email, password } = req.body;
-
+  
     try {
-        const existingUser = await User.findOne({ email });
-        if (existingUser) return res.status(400).json({ message: "User already exists" });
-
-        const hashedPassword = await bcrypt.hash(password, 12);
-        const newUser = await User.create({ name, email, password: hashedPassword });
-
-        const token = jwt.sign({ id: newUser._id, email: newUser.email }, process.env.JWT_SECRET, { expiresIn: '10h' });
-
-        res.status(201).json({ result: newUser, token });
+      const existingUser = await User.findOne({ email });
+      if (existingUser) return res.status(400).json({ message: "User already exists" });
+  
+      const hashedPassword = await bcrypt.hash(password, 12);
+      const newUser = await User.create({ name, email, password: hashedPassword });
+  
+      // ✅ Create associated AccountCategory with same name
+      const accountCategory = new AccountCategory({
+        name,
+        createdBy: newUser._id,
+        linkedUser: newUser._id
+      });
+      await accountCategory.save();
+  
+      const token = jwt.sign(
+        { id: newUser._id, email: newUser.email },
+        process.env.JWT_SECRET,
+        { expiresIn: '10h' }
+      );
+  
+      res.status(201).json({ result: newUser, token });
     } catch (err) {
-        res.status(500).json({ message: "Something went wrong" });
+      console.error(err);
+      res.status(500).json({ message: "Something went wrong" });
     }
-};
+  };
 
 // Login User
 export const loginUser = async (req, res) => {
@@ -70,7 +83,8 @@ export const getUser = async (req, res) => {
         user: {
             fullName: isUser.name,
             email: isUser.email,
-            createdOn: isUser.createOn
+            createdOn: isUser.createOn,
+            userId : req.user._id
         },
         message: "validated"
     })
