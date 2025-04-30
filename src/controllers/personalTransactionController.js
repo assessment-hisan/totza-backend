@@ -7,7 +7,7 @@ export const createPersonalTransaction = async (req, res) => {
     
     const transaction = new PersonalTransaction({
       ...req.body,
-      addedBy: req.user._id
+      user : req.user._id
     });
     await transaction.save();
     res.status(201).json(transaction);
