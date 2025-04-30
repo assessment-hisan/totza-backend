@@ -19,8 +19,7 @@ export const createPersonalTransaction = async (req, res) => {
 export const getPersonalTransactions = async (req, res) => {
   try {
     const transactions = await PersonalTransaction.find({ user: req.user._id })
-      .populate('account')
-      .populate('vendor');
+     
     res.json(transactions);
     console.log(transactions[0])
   } catch (err) {
