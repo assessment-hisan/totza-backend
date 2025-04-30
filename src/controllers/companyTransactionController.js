@@ -57,6 +57,22 @@ export const getCompanyTransactions = async (req, res) => {
   }
 };
 
+export const getRecentCompanyTransactions = async (req, res) => {
+  try {
+    const recentTransactions = await CompanyTransaction.find()
+      .sort({ createdAt: -1 }) // Sort by creation date, newest first
+      .limit(10) // Only get the 10 most recent transactions
+      .populate('account')
+      .populate('vendor')
+      .populate('addedBy');
+    
+    res.json(recentTransactions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
 export const deleteCompanyTransaction = async (req, res) => {
   try {
     const transaction = await CompanyTransaction.findByIdAndDelete(req.params.id);
