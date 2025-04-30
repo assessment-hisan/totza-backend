@@ -4,10 +4,19 @@ import PersonalTransaction from '../models/PersonalTransaction.js';
 
 export const createCompanyTransaction = async (req, res) => {
   try {
+    const cleanedBody = {...req.body};
+    
+    // Remove empty string for account field to prevent MongoDB casting error
+    if (cleanedBody.account === '') {
+      delete cleanedBody.account;
+    }
+    
     const transaction = new CompanyTransaction({
-      ...req.body,
+      ...cleanedBody,
       addedBy: req.user._id
     });
+    
+    
     await transaction.save();
       
       
