@@ -47,7 +47,7 @@ export const createCompanyTransaction = async (req, res) => {
 
 export const getCompanyTransactions = async (req, res) => {
   try {
-    const transactions = await CompanyTransaction.find()
+    const transactions = await CompanyTransaction.find().sort({ createdAt: -1 })
       .populate('account')
       .populate('vendor')
       .populate('addedBy');
