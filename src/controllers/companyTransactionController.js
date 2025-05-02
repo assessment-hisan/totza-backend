@@ -1,6 +1,7 @@
 import CompanyTransaction from '../models/CompanyTransaction.js';
 import AccountCategory from '../models/AccountCategory.js';
 import PersonalTransaction from '../models/PersonalTransaction.js';
+import syncToGoogleSheet from '../config/syncToGoogleSheet.js';
 
 export const createCompanyTransaction = async (req, res) => {
   try {
@@ -36,7 +37,9 @@ export const createCompanyTransaction = async (req, res) => {
         await personalTx.save();
       }
     }
-
+  
+      syncToGoogleSheet();
+    
     res.status(201).json(transaction);
   } catch (err) {
     console.error(err);

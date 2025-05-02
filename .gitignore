@@ -9,5 +9,5 @@
 node_modules/
 
 # Google credentials and secret keys
-credentials.json
+
 env/

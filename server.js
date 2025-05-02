@@ -23,7 +23,7 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/personal', personal )
-app.use('/company', company)
+app.use('/company', company, )
 app.use('/account', accountCategory)
 app.use('/vendor', Vendor)
 app.use('/item', item)
@@ -33,11 +33,6 @@ app.get('/', (req, res) => {
   res.send('Totza Backend is running...');
 });
 
-
-cron.schedule("0 8 * * 1", () => {
-  console.log(" Weekly sync started...");
-  syncToGoogleSheet();
-});
 
 // Connect to MongoDB and Start Server
 const PORT = process.env.PORT || 5000;
