@@ -8,6 +8,10 @@ import company from "./src/routes/companyTransactionRoutes.js"
 import accountCategory from "./src/routes/small/accountCategoryRoutes.js"
 import item from './src/routes/small/itemRoutes.js'
 import Vendor from './src/routes/small/vendorRoutes.js'
+
+import cron from "node-cron"
+import syncToGoogleSheet from "./src/config/syncToGoogleSheet.js"
+
 dotenv.config();
 
 const app = express();
@@ -27,6 +31,12 @@ app.use('/item', item)
 // Root Route
 app.get('/', (req, res) => {
   res.send('Totza Backend is running...');
+});
+
+
+cron.schedule("0 8 * * 1", () => {
+  console.log(" Weekly sync started...");
+  syncToGoogleSheet();
 });
 
 // Connect to MongoDB and Start Server
