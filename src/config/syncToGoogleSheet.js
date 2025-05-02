@@ -1,6 +1,6 @@
 // utils/syncToGoogleSheet.js
 import { google }  from "googleapis"
-import CompanyTransactions from "../models/CompanyTransaction"
+import CompanyTransactions from "../models/CompanyTransaction.js"
 const auth = new google.auth.GoogleAuth({
   keyFile: "credentials.json",
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
