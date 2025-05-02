@@ -32,8 +32,9 @@ async function syncToGoogleSheet() {
     console.log(`Found ${transactions.length} transactions to sync`);
 
     const rows = [
-      ["Type", "Amount", "Account", "Vendor", "Purpose", "Added By", "Created At"],
+      ["Id","Type", "Amount", "Account", "Vendor", "Purpose", "Added By", "Created At"],
       ...transactions.map((doc) => [
+        doc._id,
         doc.type,
         doc.amount,
         doc.account,

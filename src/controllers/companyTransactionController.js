@@ -82,6 +82,7 @@ export const deleteCompanyTransaction = async (req, res) => {
 
     if (transaction) {
       // Delete corresponding personal transaction
+      
       await PersonalTransaction.deleteOne({ companyTransaction: transaction._id });
     }
 
