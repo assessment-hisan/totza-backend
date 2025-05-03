@@ -51,7 +51,7 @@ export const createBulkCompanyTransactions = async (req, res) => {
   try {
     const transactionsData = req.body; // Expecting an array of transaction objects
     const userId = req.user._id;
-
+  console.log(req.body)
     if (!Array.isArray(transactionsData) || transactionsData.length === 0) {
       return res.status(400).json({ error: 'Input should be a non-empty array of transactions' });
     }
@@ -62,10 +62,10 @@ export const createBulkCompanyTransactions = async (req, res) => {
       addedBy: userId,
       account: tx.account === '' ? undefined : tx.account
     }));
-
+   
     // Insert all transactions in bulk
     const createdTransactions = await CompanyTransaction.insertMany(preparedTransactions);
-
+  console.log("createdTransactions", createdTransactions)
     // Process any debit transactions that need personal transaction counterparts
     const debitTransactionsWithAccount = createdTransactions.filter(
       tx => tx.type === 'Debit' && tx.account
@@ -127,6 +127,7 @@ export const getCompanyTransactions = async (req, res) => {
     res.json(transactions);
   } catch (err) {
     res.status(500).json({ error: err.message });
+    console.log(err)
   }
 };
 
