@@ -4,7 +4,7 @@ import PersonalTransaction from '../models/PersonalTransaction.js';
 
 export const createPersonalTransaction = async (req, res) => {
   try {
-    
+  
     const transaction = new PersonalTransaction({
       ...req.body,
       user : req.user._id

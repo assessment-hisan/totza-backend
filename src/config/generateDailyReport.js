@@ -1,0 +1,167 @@
+// utils/generateDailyReport.js
+import { google } from "googleapis";
+import CompanyTransaction from "../models/CompanyTransaction.js";
+import { getGoogleAuthClient } from "./googleAuth.js";
+import dotenv from "dotenv";
+dotenv.config();
+
+async function generateDailyReport() {
+  try {
+    const auth = getGoogleAuthClient();
+    const authClient = await auth.getClient();
+    
+    const drive = google.drive({ version: "v3", auth: authClient });
+    const docs = google.docs({ version: "v1", auth: authClient });
+
+    // Date setup
+    const today = new Date();
+    const todayStart = new Date(today.setHours(0, 0, 0, 0));
+    const todayEnd = new Date(today.setHours(23, 59, 59, 999));
+    const dateString = today.toISOString().split('T')[0];
+    const docTitle = `Transaction Report - ${dateString}`;
+
+    // Configuration
+    const TARGET_FOLDER_ID = process.env.GOOGLE_REPORTS_FOLDER_ID;
+    if (!TARGET_FOLDER_ID) {
+      throw new Error("GOOGLE_REPORTS_FOLDER_ID is not set in .env");
+    }
+
+    // Fetch today's transactions
+    const transactions = await CompanyTransaction.find({
+      createdAt: {
+        $gte: todayStart,
+        $lte: todayEnd
+      }
+    }).sort({ createdAt: 1 });
+
+    if (transactions.length === 0) {
+      console.log("No transactions found for today");
+      return { 
+        success: true,
+        message: "No transactions to report today",
+        docCreated: false
+      };
+    }
+
+    // Calculate statistics
+    const stats = {
+      totalAmount: transactions.reduce((sum, t) => sum + t.amount, 0),
+      typeCounts: transactions.reduce((counts, t) => {
+        counts[t.type] = (counts[t.type] || 0) + 1;
+        return counts;
+      }, {})
+    };
+
+    // Generate report content
+    let docContent = [
+      `DAILY TRANSACTION REPORT - ${dateString}`,
+      `\nGenerated: ${new Date().toLocaleString()}\n`,
+      `\nSUMMARY:`,
+      `Total Transactions: ${transactions.length}`,
+      `Total Amount: $${stats.totalAmount.toFixed(2)}`,
+      `\nTransaction Counts by Type:`,
+      ...Object.entries(stats.typeCounts).map(([type, count]) => `- ${type}: ${count}`),
+      `\nDETAILED TRANSACTIONS:`,
+      ...transactions.map((t, i) => [
+        `\n${i + 1}. ${t.type.toUpperCase()} - $${t.amount.toFixed(2)}`,
+        `   Account: ${t.account}`,
+        `   Vendor: ${t.vendor || "N/A"}`,
+        `   Purpose: ${t.purpose}`,
+        `   Added By: ${t.addedBy.toString()}`,
+        `   Time: ${new Date(t.createdAt).toLocaleTimeString()}`
+      ].join('\n'))
+    ].join('\n');
+
+    // Create document in specific folder
+    const doc = await docs.documents.create({
+      requestBody: {
+        title: docTitle,
+        parents: [TARGET_FOLDER_ID]
+      }
+    });
+
+    const documentId = doc.data.documentId;
+    console.log(`Document created with ID: ${documentId}`);
+
+    // Insert content with basic formatting
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: [
+          {
+            insertText: {
+              text: docContent,
+              location: { index: 1 }
+            }
+          },
+          {
+            updateTextStyle: {
+              range: {
+                startIndex: 1,
+                endIndex: docContent.split('\n')[0].length + 1
+              },
+              textStyle: {
+                bold: true,
+                fontSize: {
+                  magnitude: 14,
+                  unit: 'PT'
+                }
+              },
+              fields: "bold,fontSize"
+            }
+          }
+        ]
+      }
+    });
+
+    // Set permissions
+    await drive.permissions.create({
+      fileId: documentId,
+      requestBody: {
+        role: 'reader',
+        type: 'anyone'
+      }
+    });
+
+    // Verify document exists
+    const fileInfo = await drive.files.get({
+      fileId: documentId,
+      fields: 'id,name,webViewLink,parents'
+    });
+
+    const docUrl = fileInfo.data.webViewLink;
+    console.log(`Document successfully saved to: ${docUrl}`);
+
+    return { 
+      success: true,
+      docCreated: true,
+      documentId,
+      docTitle,
+      docUrl,
+      folderId: TARGET_FOLDER_ID,
+      stats: {
+        transactionCount: transactions.length,
+        totalAmount: stats.totalAmount
+      }
+    };
+
+  } catch (error) {
+    console.error("Error in generateDailyReport:", {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+    
+    if (error.response?.data?.error) {
+      console.error("Google API Error Details:", error.response.data.error);
+    }
+    
+    throw {
+      ...error,
+      isReportError: true,
+      documentSaved: false
+    };
+  }
+}
+
+export default generateDailyReport;

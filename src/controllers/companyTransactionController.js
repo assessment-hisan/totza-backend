@@ -51,7 +51,7 @@ export const createBulkCompanyTransactions = async (req, res) => {
   try {
     const transactionsData = req.body; // Expecting an array of transaction objects
     const userId = req.user._id;
-  console.log(req.body)
+  console.log(transactionsData)
     if (!Array.isArray(transactionsData) || transactionsData.length === 0) {
       return res.status(400).json({ error: 'Input should be a non-empty array of transactions' });
     }
@@ -62,7 +62,7 @@ export const createBulkCompanyTransactions = async (req, res) => {
       addedBy: userId,
       account: tx.account === '' ? undefined : tx.account
     }));
-   
+   console.log("prepared tnxss" ,preparedTransactions)
     // Insert all transactions in bulk
     const createdTransactions = await CompanyTransaction.insertMany(preparedTransactions);
   console.log("createdTransactions", createdTransactions)
@@ -102,7 +102,7 @@ export const createBulkCompanyTransactions = async (req, res) => {
     }
 
     // Sync to Google Sheets (assuming this can handle bulk operations)
-    syncToGoogleSheet();
+    // syncToGoogleSheet();
 
     res.status(201).json({
       message: `${createdTransactions.length} transactions created successfully`,

@@ -30,7 +30,9 @@ export function getGoogleAuthClient() {
     // Create authentication client using the key file
     const auth = new google.auth.GoogleAuth({
       keyFile: keyFilePath,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+      scopes: ["https://www.googleapis.com/auth/spreadsheets", // Existing Sheets access
+      "https://www.googleapis.com/auth/drive.file",  // For file management
+      "https://www.googleapis.com/auth/documents"],
     });
     
     console.log("Google Auth client created successfully");
