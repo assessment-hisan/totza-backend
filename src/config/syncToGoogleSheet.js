@@ -7,15 +7,15 @@ dotenv.config();
 
 async function syncToGoogleSheet() {
   try {
-    console.log("Starting Google Sheets sync process...");
+    
     
     // Get the authenticated client using our JSON file approach
     const auth = getGoogleAuthClient();
     
     // Get authenticated client
-    console.log("Getting authenticated client...");
+    
     const authClient = await auth.getClient();
-    console.log("Auth client obtained successfully");
+    
     
     // Initialize Google Sheets API
     const sheets = google.sheets({
@@ -27,9 +27,9 @@ async function syncToGoogleSheet() {
     const SHEET_NAME = "Sheet1";
 
     // Fetch all transactions
-    console.log("Fetching transactions...");
+    
     const transactions = await CompanyTransactions.find();
-    console.log(`Found ${transactions.length} transactions to sync`);
+    
 
     const rows = [
       ["Id","Type", "Amount", "Account", "Vendor", "Purpose", "Added By", "Created At"],
@@ -46,14 +46,14 @@ async function syncToGoogleSheet() {
     ];
 
     // Clear existing data
-    console.log("Clearing existing spreadsheet data...");
+    
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SHEET_ID,
       range: SHEET_NAME,
     });
 
     // Write new data
-    console.log("Writing new data to spreadsheet...");
+    
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
       range: SHEET_NAME,
