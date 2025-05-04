@@ -72,16 +72,22 @@ async function generateDailyReport() {
       ].join('\n'))
     ].join('\n');
 
-    // Create document in specific folder
+    // Create blank document first
     const doc = await docs.documents.create({
       requestBody: {
-        title: docTitle,
-        parents: [TARGET_FOLDER_ID]
+        title: docTitle
       }
     });
 
     const documentId = doc.data.documentId;
     console.log(`Document created with ID: ${documentId}`);
+
+    // Move document to target folder using Drive API
+    await drive.files.update({
+      fileId: documentId,
+      addParents: TARGET_FOLDER_ID,
+      fields: 'id,parents'
+    });
 
     // Insert content with basic formatting
     await docs.documents.batchUpdate({
@@ -123,7 +129,7 @@ async function generateDailyReport() {
       }
     });
 
-    // Verify document exists
+    // Verify document exists and get URL
     const fileInfo = await drive.files.get({
       fileId: documentId,
       fields: 'id,name,webViewLink,parents'
