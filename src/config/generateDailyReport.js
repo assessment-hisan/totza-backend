@@ -52,26 +52,6 @@ async function generateDailyReport() {
       }, {})
     };
 
-    // Generate report content
-    let docContent = [
-      `DAILY TRANSACTION REPORT - ${dateString}`,
-      `\nGenerated: ${new Date().toLocaleString()}\n`,
-      `\nSUMMARY:`,
-      `Total Transactions: ${transactions.length}`,
-      `Total Amount: $${stats.totalAmount.toFixed(2)}`,
-      `\nTransaction Counts by Type:`,
-      ...Object.entries(stats.typeCounts).map(([type, count]) => `- ${type}: ${count}`),
-      `\nDETAILED TRANSACTIONS:`,
-      ...transactions.map((t, i) => [
-        `\n${i + 1}. ${t.type.toUpperCase()} - $${t.amount.toFixed(2)}`,
-        `   Account: ${t.account}`,
-        `   Vendor: ${t.vendor || "N/A"}`,
-        `   Purpose: ${t.purpose}`,
-        `   Added By: ${t.addedBy.toString()}`,
-        `   Time: ${new Date(t.createdAt).toLocaleTimeString()}`
-      ].join('\n'))
-    ].join('\n');
-
     // Create blank document first
     const doc = await docs.documents.create({
       requestBody: {
@@ -89,35 +69,176 @@ async function generateDailyReport() {
       fields: 'id,parents'
     });
 
-    // Insert content with basic formatting
-    await docs.documents.batchUpdate({
-      documentId,
-      requestBody: {
-        requests: [
-          {
-            insertText: {
-              text: docContent,
-              location: { index: 1 }
+    // Generate report header content
+    const headerContent = [
+      `DAILY TRANSACTION REPORT - ${dateString}`,
+      `\nGenerated: ${new Date().toLocaleString()}\n`,
+      `\nSUMMARY:`,
+      `Total Transactions: ${transactions.length}`,
+      `Total Amount: $${stats.totalAmount.toFixed(2)}`,
+      `\nTransaction Counts by Type:`,
+      ...Object.entries(stats.typeCounts).map(([type, count]) => `- ${type}: ${count}`),
+      `\n\nDETAILED TRANSACTIONS:\n`
+    ].join('\n');
+
+    // Prepare all document requests
+    const requests = [
+      // Insert header content
+      {
+        insertText: {
+          text: headerContent,
+          location: { index: 1 }
+        }
+      },
+      // Format title
+      {
+        updateTextStyle: {
+          range: {
+            startIndex: 1,
+            endIndex: headerContent.split('\n')[0].length + 1
+          },
+          textStyle: {
+            bold: true,
+            fontSize: { magnitude: 16, unit: 'PT' }
+          },
+          fields: "bold,fontSize"
+        }
+      },
+      // Format section headers
+      {
+        updateTextStyle: {
+          range: {
+            startIndex: headerContent.indexOf('SUMMARY:'),
+            endIndex: headerContent.indexOf('SUMMARY:') + 8
+          },
+          textStyle: {
+            bold: true,
+            fontSize: { magnitude: 14, unit: 'PT' }
+          },
+          fields: "bold,fontSize"
+        }
+      },
+      {
+        updateTextStyle: {
+          range: {
+            startIndex: headerContent.indexOf('DETAILED TRANSACTIONS:'),
+            endIndex: headerContent.indexOf('DETAILED TRANSACTIONS:') + 21
+          },
+          textStyle: {
+            bold: true,
+            fontSize: { magnitude: 14, unit: 'PT' }
+          },
+          fields: "bold,fontSize"
+        }
+      },
+      // Create table (7 columns)
+      {
+        insertTable: {
+          rows: 1,
+          columns: 7,
+          location: { index: headerContent.length + 1 }
+        }
+      },
+      // Format table header row
+      {
+        updateTableRowStyle: {
+          tableStartLocation: { index: headerContent.length + 1 },
+          rowIndex: 0,
+          tableRowStyle: {
+            minRowHeight: { magnitude: 20, unit: 'PT' }
+          },
+          fields: "minRowHeight"
+        }
+      },
+      // Add column headers
+      {
+        insertText: {
+          text: "Date\tType\tAmount\tAccount\tVendor\tItems\tPurpose\n",
+          location: { index: headerContent.length + 2 }
+        }
+      },
+      // Format column headers
+      {
+        updateTextStyle: {
+          range: {
+            startIndex: headerContent.length + 2,
+            endIndex: headerContent.length + 100
+          },
+          textStyle: {
+            bold: true,
+            backgroundColor: { 
+              color: { 
+                rgbColor: { red: 0.9, green: 0.9, blue: 0.9 } 
+              } 
             }
           },
-          {
-            updateTextStyle: {
-              range: {
-                startIndex: 1,
-                endIndex: docContent.split('\n')[0].length + 1
-              },
-              textStyle: {
-                bold: true,
-                fontSize: {
-                  magnitude: 14,
-                  unit: 'PT'
-                }
-              },
-              fields: "bold,fontSize"
-            }
-          }
-        ]
+          fields: "bold,backgroundColor"
+        }
       }
+    ];
+
+    // Add transaction rows to table
+    transactions.forEach((t, i) => {
+      const rowStartIndex = headerContent.length + 2 + (i + 1) * 100; // Approximate position
+      const rowText = [
+        new Date(t.createdAt).toLocaleDateString(),
+        t.type.toUpperCase(),
+        `$${t.amount.toFixed(2)}`,
+        t.account,
+        t.vendor || "N/A",
+        t.items ? t.items.join(", ") : "N/A",
+        t.purpose
+      ].join('\t') + '\n';
+
+      requests.push(
+        {
+          insertText: {
+            text: rowText,
+            location: { index: rowStartIndex }
+          }
+        },
+        // Alternate row colors
+        {
+          updateTableCellStyle: {
+            tableStartLocation: { index: headerContent.length + 1 },
+            rowIndex: i + 1,
+            tableCellStyle: {
+              backgroundColor: { 
+                color: { 
+                  rgbColor: { 
+                    red: i % 2 ? 0.98 : 1, 
+                    green: i % 2 ? 0.98 : 1, 
+                    blue: i % 2 ? 0.98 : 1 
+                  } 
+                } 
+              }
+            },
+            fields: "backgroundColor"
+          }
+        }
+      );
+    });
+
+    // Set column widths
+    const columnWidths = [100, 80, 80, 120, 120, 150, 200]; // In points
+    columnWidths.forEach((width, index) => {
+      requests.push({
+        updateTableColumnProperties: {
+          tableStartLocation: { index: headerContent.length + 1 },
+          columnIndices: [index],
+          tableColumnProperties: {
+            widthType: "FIXED_WIDTH",
+            width: { magnitude: width, unit: "PT" }
+          },
+          fields: "widthType,width"
+        }
+      });
+    });
+
+    // Execute all requests in a single batch
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody: { requests }
     });
 
     // Set permissions
