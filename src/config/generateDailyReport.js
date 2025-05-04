@@ -75,9 +75,9 @@ export async function generateDailyReport() {
     const requests = [
       {
         insertText: {
-          location: { index: 1 },
-          text: `${docTitle}\n\n`.toString(),
-        },
+          location: { index: 0 },
+          text: `${docTitle}\n\n`
+        }
       },
       {
         insertTable: {
