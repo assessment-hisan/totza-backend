@@ -76,7 +76,7 @@ export async function generateDailyReport() {
       {
         insertText: {
           location: { index: 0 },
-          text: `${docTitle}\n\n`
+          text: `${docTitle}`
         }
       },
       {
