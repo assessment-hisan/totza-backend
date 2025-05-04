@@ -71,7 +71,7 @@ app.post('/api/trigger-sync', async (req, res) => {
   }
 });
 
-app.get('/api/trigger-report', async (req, res) => {
+app.post('/api/trigger-report', async (req, res) => {
   try {
     const result = await generateDailyReport();
     res.json({ success: true, reportUrl: result.docUrl });
