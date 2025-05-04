@@ -12,7 +12,7 @@ export async function generateDailyReport() {
   const todayEnd = new Date(now.setHours(23, 59, 59, 999));
   const dateString = new Date().toISOString().split("T")[0];
   const docTitle = `Transaction Report - ${dateString}`;
-
+  const documentId = process.env.GOOGLE_REPORTS_FOLDER_ID
   try {
     const auth = getGoogleAuthClient();
     const authClient = await auth.getClient();
@@ -122,7 +122,7 @@ export async function generateDailyReport() {
     }
 
     await docs.documents.batchUpdate({
-      GOOGLE_REPORTS_FOLDER_ID,
+      documentId,
       requestBody: { requests },
     });
 
