@@ -122,7 +122,7 @@ export async function generateDailyReport() {
     }
 
     await docs.documents.batchUpdate({
-      documentId,
+      GOOGLE_REPORTS_FOLDER_ID,
       requestBody: { requests },
     });
 
