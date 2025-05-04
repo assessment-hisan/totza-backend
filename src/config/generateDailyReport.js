@@ -76,7 +76,7 @@ export async function generateDailyReport() {
       {
         insertText: {
           location: { index: 1 },
-          text: `${docTitle}\n\n`,
+          text: `${docTitle}\n\n`.toString(),
         },
       },
       {
@@ -98,7 +98,7 @@ export async function generateDailyReport() {
       for (const cell of row.tableCells) {
         requests.push({
           insertText: {
-            text: cell.content,
+            text: cell.content.toString(),
             location: { index: ++startIndex },
           },
         });
