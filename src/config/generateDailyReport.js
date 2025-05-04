@@ -1,141 +1,139 @@
 import { google } from "googleapis";
-import CompanyTransaction from "../models/CompanyTransaction.js";
+import CompanyTransactions from "../models/CompanyTransaction.js";
 import { getGoogleAuthClient } from "./googleAuth.js";
 import dotenv from "dotenv";
+import logger from "./logger.js";
+
 dotenv.config();
 
-async function generateDailyReport() {
+export async function generateDailyReport() {
+  const now = new Date();
+  const todayStart = new Date(now.setHours(0, 0, 0, 0));
+  const todayEnd = new Date(now.setHours(23, 59, 59, 999));
+  const dateString = new Date().toISOString().split("T")[0];
+  const docTitle = `Transaction Report - ${dateString}`;
+
   try {
     const auth = getGoogleAuthClient();
     const authClient = await auth.getClient();
 
-    const drive = google.drive({ version: "v3", auth: authClient });
     const docs = google.docs({ version: "v1", auth: authClient });
 
-    // Date setup
-    const today = new Date();
-    const todayStart = new Date(today.setHours(0, 0, 0, 0));
-    const todayEnd = new Date(today.setHours(23, 59, 59, 999));
-    const dateString = today.toISOString().split('T')[0];
-    const docTitle = `Transaction Report - ${dateString}`;
+    // Fetch transactions for today
+    const transactions = await CompanyTransactions.find({
+      createdAt: { $gte: todayStart, $lte: todayEnd },
+    })
+      .sort({ createdAt: 1 })
+      .lean();
 
-    const TARGET_FOLDER_ID = process.env.GOOGLE_REPORTS_FOLDER_ID;
-    if (!TARGET_FOLDER_ID) throw new Error("GOOGLE_REPORTS_FOLDER_ID is not set");
-
-    const transactions = await CompanyTransaction.find({
-      createdAt: { $gte: todayStart, $lte: todayEnd }
-    }).sort({ createdAt: 1 });
-
-    if (transactions.length === 0) {
-      console.log("No transactions found for today");
-      return {
-        success: true,
-        message: "No transactions to report today",
-        docCreated: false
-      };
+    if (!transactions.length) {
+      logger.warn("No transactions found for today.");
+      return { success: false, message: "No transactions to sync" };
     }
 
-    const stats = {
-      totalAmount: transactions.reduce((sum, t) => sum + t.amount, 0),
-      typeCounts: transactions.reduce((counts, t) => {
-        counts[t.type] = (counts[t.type] || 0) + 1;
-        return counts;
-      }, {})
-    };
-
-    const doc = await docs.documents.create({
-      requestBody: { title: docTitle }
+    // Create the document
+    const createResponse = await docs.documents.create({
+      requestBody: {
+        title: docTitle,
+      },
     });
 
-    const documentId = doc.data.documentId;
-    console.log(`Document created with ID: ${documentId}`);
+    const documentId = createResponse.data.documentId;
 
-    await drive.files.update({
-      fileId: documentId,
-      addParents: TARGET_FOLDER_ID,
-      fields: 'id, parents'
-    });
-
-    const headerContent = [
-      `DAILY TRANSACTION REPORT - ${dateString}`,
-      `Generated: ${new Date().toLocaleString()}`,
-      ``,
-      `SUMMARY:`,
-      `Total Transactions: ${transactions.length}`,
-      `Total Amount: $${stats.totalAmount.toFixed(2)}`,
-      `Transaction Counts by Type:`,
-      ...Object.entries(stats.typeCounts).map(([type, count]) => `- ${type}: ${count}`),
-      ``,
-      `DETAILED TRANSACTIONS:`
-    ].join('\n');
-
-    const tableHeaders = ["Date", "Type", "Amount", "Account", "Vendor", "Items", "Purpose"];
-    const rows = [
-      tableHeaders,
-      ...transactions.map(t => [
-        new Date(t.createdAt).toLocaleDateString(),
-        t.type.toUpperCase(),
-        `$${t.amount.toFixed(2)}`,
-        t.account,
-        t.vendor || "N/A",
-        t.items ? t.items.join(", ") : "N/A",
-        t.purpose
-      ])
+    const headers = [
+      "Date",
+      "Type",
+      "Amount",
+      "Account",
+      "Vendor",
+      "Purpose",
+      "Added By",
+      "Time",
     ];
 
-    const requests = [];
+    const tableRows = [
+      {
+        tableCells: headers.map((text) => ({
+          content: text,
+          bold: true,
+        })),
+      },
+      ...transactions.map((txn) => ({
+        tableCells: [
+          new Date(txn.date).toLocaleDateString(),
+          txn.type || "N/A",
+          txn.amount || 0,
+          txn.account || "N/A",
+          txn.vendor || "N/A",
+          txn.purpose || "N/A",
+          txn.addedBy?.toString() || "N/A",
+          txn.createdAt ? new Date(txn.createdAt).toLocaleTimeString() : "N/A",
+        ].map((text) => ({ content: text })),
+      })),
+    ];
 
-    // Insert header text
-    requests.push({
-      insertText: {
-        text: headerContent + "\n\n",
-        location: { index: 1 }
-      }
-    });
+    const requests = [
+      {
+        insertText: {
+          location: { index: 1 },
+          text: `${docTitle}\n\n`,
+        },
+      },
+      {
+        insertTable: {
+          rows: tableRows.length,
+          columns: headers.length,
+          location: {
+            index: 1 + docTitle.length + 2, // rough offset
+          },
+        },
+      },
+    ];
 
-    // Create table
-    requests.push({
-      insertTable: {
-        rows: rows.length,
-        columns: tableHeaders.length,
-        location: { index: headerContent.length + 2 }
-      }
-    });
+    // Insert table cell content
+    let startIndex = docTitle.length + 2; // index after title
+    let cellIndex = 0;
 
-    // Flatten rows into insertText requests for each cell
-    let currentIndex = headerContent.length + 3;
-    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-      for (let colIndex = 0; colIndex < rows[rowIndex].length; colIndex++) {
-        const text = rows[rowIndex][colIndex] + '\n';
+    for (const row of tableRows) {
+      for (const cell of row.tableCells) {
         requests.push({
           insertText: {
-            text,
-            location: { index: currentIndex }
-          }
+            text: cell.content,
+            location: { index: ++startIndex },
+          },
         });
-        currentIndex += text.length;
+
+        // Optional: bold header
+        if (cell.bold) {
+          requests.push({
+            updateTextStyle: {
+              range: {
+                startIndex,
+                endIndex: startIndex + cell.content.length,
+              },
+              textStyle: { bold: true },
+              fields: "bold",
+            },
+          });
+        }
+
+        startIndex += cell.content.length;
       }
     }
 
     await docs.documents.batchUpdate({
       documentId,
-      requestBody: { requests }
+      requestBody: { requests },
     });
 
-    return {
-      success: true,
-      message: "Daily report created successfully",
-      docCreated: true,
-      documentId
-    };
+    logger.info(`Transaction doc created successfully: ${docTitle}`);
+    return { success: true, documentId };
+
   } catch (error) {
-    console.error("Error in generateDailyReport:", error);
-    return {
-      success: false,
-      message: "Failed to generate daily report",
-      error: error.message
-    };
+    logger.error("Failed to create transaction document:", error);
+    throw new Error("Google Docs sync failed");
   }
 }
 
-export default generateDailyReport;
+
+export default generateDailyReport
