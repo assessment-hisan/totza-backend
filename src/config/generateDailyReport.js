@@ -1,4 +1,3 @@
-// utils/generateDailyReport.js
 import { google } from "googleapis";
 import CompanyTransaction from "../models/CompanyTransaction.js";
 import { getGoogleAuthClient } from "./googleAuth.js";
@@ -9,7 +8,7 @@ async function generateDailyReport() {
   try {
     const auth = getGoogleAuthClient();
     const authClient = await auth.getClient();
-    
+
     const drive = google.drive({ version: "v3", auth: authClient });
     const docs = google.docs({ version: "v1", auth: authClient });
 
@@ -20,30 +19,22 @@ async function generateDailyReport() {
     const dateString = today.toISOString().split('T')[0];
     const docTitle = `Transaction Report - ${dateString}`;
 
-    // Configuration
     const TARGET_FOLDER_ID = process.env.GOOGLE_REPORTS_FOLDER_ID;
-    if (!TARGET_FOLDER_ID) {
-      throw new Error("GOOGLE_REPORTS_FOLDER_ID is not set in .env");
-    }
+    if (!TARGET_FOLDER_ID) throw new Error("GOOGLE_REPORTS_FOLDER_ID is not set");
 
-    // Fetch today's transactions
     const transactions = await CompanyTransaction.find({
-      createdAt: {
-        $gte: todayStart,
-        $lte: todayEnd
-      }
+      createdAt: { $gte: todayStart, $lte: todayEnd }
     }).sort({ createdAt: 1 });
 
     if (transactions.length === 0) {
       console.log("No transactions found for today");
-      return { 
+      return {
         success: true,
         message: "No transactions to report today",
         docCreated: false
       };
     }
 
-    // Calculate statistics
     const stats = {
       totalAmount: transactions.reduce((sum, t) => sum + t.amount, 0),
       typeCounts: transactions.reduce((counts, t) => {
@@ -52,198 +43,36 @@ async function generateDailyReport() {
       }, {})
     };
 
-    // Create blank document first
     const doc = await docs.documents.create({
-      requestBody: {
-        title: docTitle
-      }
+      requestBody: { title: docTitle }
     });
 
     const documentId = doc.data.documentId;
     console.log(`Document created with ID: ${documentId}`);
 
-    // Move document to target folder using Drive API
     await drive.files.update({
       fileId: documentId,
       addParents: TARGET_FOLDER_ID,
-      fields: 'id,parents'
+      fields: 'id, parents'
     });
 
-    // Generate report header content
     const headerContent = [
       `DAILY TRANSACTION REPORT - ${dateString}`,
-      `\nGenerated: ${new Date().toLocaleString()}\n`,
-      `\nSUMMARY:`,
+      `Generated: ${new Date().toLocaleString()}`,
+      ``,
+      `SUMMARY:`,
       `Total Transactions: ${transactions.length}`,
       `Total Amount: $${stats.totalAmount.toFixed(2)}`,
-      `\nTransaction Counts by Type:`,
+      `Transaction Counts by Type:`,
       ...Object.entries(stats.typeCounts).map(([type, count]) => `- ${type}: ${count}`),
-      `\n\nDETAILED TRANSACTIONS:\n`
+      ``,
+      `DETAILED TRANSACTIONS:`
     ].join('\n');
 
-    // Prepare all document requests
-    // Prepare all document requests
-const requests = [
-  // Insert header content
-  {
-    insertText: {
-      text: headerContent,
-      location: { index: 1 }
-    }
-  },
-  // Format title
-  {
-    updateTextStyle: {
-      range: {
-        startIndex: 1,
-        endIndex: headerContent.split('\n')[0].length + 1
-      },
-      textStyle: {
-        bold: true,
-        fontSize: { magnitude: 16, unit: 'PT' }
-      },
-      fields: "bold,fontSize"
-    }
-  },
-  // Format section headers
-  {
-    updateTextStyle: {
-      range: {
-        startIndex: headerContent.indexOf('SUMMARY:'),
-        endIndex: headerContent.indexOf('SUMMARY:') + 8
-      },
-      textStyle: {
-        bold: true,
-        fontSize: { magnitude: 14, unit: 'PT' }
-      },
-      fields: "bold,fontSize"
-    }
-  },
-  {
-    updateTextStyle: {
-      range: {
-        startIndex: headerContent.indexOf('DETAILED TRANSACTIONS:'),
-        endIndex: headerContent.indexOf('DETAILED TRANSACTIONS:') + 21
-      },
-      textStyle: {
-        bold: true,
-        fontSize: { magnitude: 14, unit: 'PT' }
-      },
-      fields: "bold,fontSize"
-    }
-  },
-  // Create table (7 columns)
-  {
-    insertTable: {
-      rows: 1,
-      columns: 7,
-      location: { index: headerContent.length + 1 }
-    }
-  },
-  // Format table header row
-  {
-    updateTableRowStyle: {
-      tableStartLocation: { index: headerContent.length + 1 },
-      tableRowStyle: {
-        minRowHeight: { magnitude: 20, unit: 'PT' }
-      },
-      fields: "minRowHeight",
-      rowIndices: [0]
-    }
-  },
-  // Add column headers
-  {
-    insertText: {
-      text: "Date\tType\tAmount\tAccount\tVendor\tItems\tPurpose\n",
-      location: { index: headerContent.length + 2 }
-    }
-  },
-  // Format column headers
-  {
-    updateTextStyle: {
-      range: {
-        startIndex: headerContent.length + 2,
-        endIndex: headerContent.length + 100
-      },
-      textStyle: {
-        bold: true,
-        backgroundColor: { 
-          color: { 
-            rgbColor: { red: 0.9, green: 0.9, blue: 0.9 } 
-          } 
-        }
-      },
-      fields: "bold,backgroundColor"
-    }
-  }
-];
-
-// Add transaction rows to table
-transactions.forEach((t, i) => {
-  const rowStartIndex = headerContent.length + 2 + (i + 1) * 100; // Approximate position
-  const rowText = [
-    new Date(t.createdAt).toLocaleDateString(),
-    t.type.toUpperCase(),
-    `$${t.amount.toFixed(2)}`,
-    t.account,
-    t.vendor || "N/A",
-    t.items ? t.items.join(", ") : "N/A",
-    t.purpose
-  ].join('\t') + '\n';
-
-  requests.push(
-    {
-      insertText: {
-        text: rowText,
-        location: { index: rowStartIndex }
-      }
-    },
-    // Alternate row colors
-    {
-      updateTableCellStyle: {
-        tableStartLocation: { index: headerContent.length + 1 },
-        tableCellStyle: {
-          backgroundColor: { 
-            color: { 
-              rgbColor: { 
-                red: i % 2 ? 0.98 : 1, 
-                green: i % 2 ? 0.98 : 1, 
-                blue: i % 2 ? 0.98 : 1 
-              } 
-            } 
-          }
-        },
-        fields: "backgroundColor",
-        tableCellLocation: {
-          tableStartLocation: { index: headerContent.length + 1 },
-          rowIndex: i + 1,
-          columnIndex: 0
-        }
-      }
-    }
-  );
-});
-
-// Set column widths
-const columnWidths = [100, 80, 80, 120, 120, 150, 200]; // In points
-columnWidths.forEach((width, index) => {
-  requests.push({
-    updateTableColumnProperties: {
-      tableStartLocation: { index: headerContent.length + 1 },
-      columnIndices: [index],
-      tableColumnProperties: {
-        widthType: "FIXED_WIDTH",
-        width: { magnitude: width, unit: "PT" }
-      },
-      fields: "widthType,width"
-    }
-  });
-});
-
-    // Add transaction rows to table
-    transactions.forEach((t, i) => {
-      const rowStartIndex = headerContent.length + 2 + (i + 1) * 100; // Approximate position
-      const rowText = [
+    const tableHeaders = ["Date", "Type", "Amount", "Account", "Vendor", "Items", "Purpose"];
+    const rows = [
+      tableHeaders,
+      ...transactions.map(t => [
         new Date(t.createdAt).toLocaleDateString(),
         t.type.toUpperCase(),
         `$${t.amount.toFixed(2)}`,
@@ -251,91 +80,60 @@ columnWidths.forEach((width, index) => {
         t.vendor || "N/A",
         t.items ? t.items.join(", ") : "N/A",
         t.purpose
-      ].join('\t') + '\n';
+      ])
+    ];
 
-      requests.push(
-        {
-          insertText: {
-            text: rowText,
-            location: { index: rowStartIndex }
-          }
-        },
-        // Alternate row colors
-        {
-          updateTableCellStyle: {
-            tableStartLocation: { index: headerContent.length + 1 },
-            rowIndex: i + 1,
-            tableCellStyle: {
-              backgroundColor: { 
-                color: { 
-                  rgbColor: { 
-                    red: i % 2 ? 0.98 : 1, 
-                    green: i % 2 ? 0.98 : 1, 
-                    blue: i % 2 ? 0.98 : 1 
-                  } 
-                } 
-              }
-            },
-            fields: "backgroundColor"
-          }
-        }
-      );
+    const requests = [];
+
+    // Insert header text
+    requests.push({
+      insertText: {
+        text: headerContent + "\n\n",
+        location: { index: 1 }
+      }
     });
 
-   
+    // Create table
+    requests.push({
+      insertTable: {
+        rows: rows.length,
+        columns: tableHeaders.length,
+        location: { index: headerContent.length + 2 }
+      }
+    });
 
-    // Execute all requests in a single batch
+    // Flatten rows into insertText requests for each cell
+    let currentIndex = headerContent.length + 3;
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      for (let colIndex = 0; colIndex < rows[rowIndex].length; colIndex++) {
+        const text = rows[rowIndex][colIndex] + '\n';
+        requests.push({
+          insertText: {
+            text,
+            location: { index: currentIndex }
+          }
+        });
+        currentIndex += text.length;
+      }
+    }
+
     await docs.documents.batchUpdate({
       documentId,
       requestBody: { requests }
     });
 
-    // Set permissions
-    await drive.permissions.create({
-      fileId: documentId,
-      requestBody: {
-        role: 'reader',
-        type: 'anyone'
-      }
-    });
-
-    // Verify document exists and get URL
-    const fileInfo = await drive.files.get({
-      fileId: documentId,
-      fields: 'id,name,webViewLink,parents'
-    });
-
-    const docUrl = fileInfo.data.webViewLink;
-    console.log(`Document successfully saved to: ${docUrl}`);
-
-    return { 
+    return {
       success: true,
+      message: "Daily report created successfully",
       docCreated: true,
-      documentId,
-      docTitle,
-      docUrl,
-      folderId: TARGET_FOLDER_ID,
-      stats: {
-        transactionCount: transactions.length,
-        totalAmount: stats.totalAmount
-      }
+      documentId
     };
-
   } catch (error) {
-    console.error("Error in generateDailyReport:", {
-      message: error.message,
-      stack: error.stack,
-      response: error.response?.data
-    });
-    
-    if (error.response?.data?.error) {
-      console.error("Google API Error Details:", error.response.data.error);
-    }
-    
-    throw {
-      ...error,
-      isReportError: true,
-      documentSaved: false
+    console.error("Error in generateDailyReport:", error);
+    return {
+      success: false,
+      message: "Failed to generate daily report",
+      error: error.message
     };
   }
 }
