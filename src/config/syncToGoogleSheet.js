@@ -56,14 +56,15 @@ async function syncToGoogleSheet() {
             $lte: todayEnd
           }
         })
-        .populate('account', 'name') // Populate the account field with just the name
+        .populate('account', 'name')
+        .populate('addedBy', 'name') // Populate the account field with just the name
         .sort({ createdAt: 1 })
         .lean(); // Using lean() for better performance
       } catch (dbError) {
         logger.error("Database query failed:", dbError);
         throw new Error("Failed to fetch transactions from database");
       }
-       console.log(transactions)
+       
       // Prepare data with validation
       if (!Array.isArray(transactions)) {
         throw new Error("Transactions data is not in expected format");
@@ -86,7 +87,7 @@ async function syncToGoogleSheet() {
           doc.account?.name || "N/A", // Access the populated account name
           doc.vendor || "N/A",
           doc.purpose || "N/A",
-          doc.addedBy?.toString() || "N/A",
+          doc.addedBy?.name  || "N/A",
           doc.createdAt ? new Date(doc.createdAt).toLocaleString() : "N/A"
         ];
       });
