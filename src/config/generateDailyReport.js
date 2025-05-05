@@ -12,34 +12,45 @@ export async function generateDailyReport() {
   const todayEnd = new Date(now.setHours(23, 59, 59, 999));
   const dateString = new Date().toISOString().split("T")[0];
   const docTitle = `Transaction Report - ${dateString}`;
-  const documentId = process.env.GOOGLE_REPORTS_FOLDER_ID
+
   try {
     const auth = getGoogleAuthClient();
     const authClient = await auth.getClient();
-
+    
     const docs = google.docs({ version: "v1", auth: authClient });
-
+    const drive = google.drive({ version: "v3", auth: authClient });
+    
     // Fetch transactions for today
     const transactions = await CompanyTransactions.find({
       createdAt: { $gte: todayStart, $lte: todayEnd },
     })
       .sort({ createdAt: 1 })
       .lean();
-
+    
     if (!transactions.length) {
       logger.warn("No transactions found for today.");
       return { success: false, message: "No transactions to sync" };
     }
-
-    // Create the document
+    
+    // Step 1: Create an empty document with title
     const createResponse = await docs.documents.create({
       requestBody: {
         title: docTitle,
       },
     });
-
+    
     const documentId = createResponse.data.documentId;
-
+    
+    // If a parent folder is specified, move the document to that folder
+    if (process.env.GOOGLE_REPORTS_FOLDER_ID) {
+      await drive.files.update({
+        fileId: documentId,
+        addParents: process.env.GOOGLE_REPORTS_FOLDER_ID,
+        fields: 'id, parents',
+      });
+    }
+    
+    // Step 2: Define the table structure
     const headers = [
       "Date",
       "Type",
@@ -50,90 +61,169 @@ export async function generateDailyReport() {
       "Added By",
       "Time",
     ];
-
+    
+    // Create row data for the table
     const tableRows = [
-      {
-        tableCells: headers.map((text) => ({
-          content: text,
-          bold: true,
-        })),
-      },
-      ...transactions.map((txn) => ({
-        tableCells: [
-          new Date(txn.date).toLocaleDateString(),
-          txn.type || "N/A",
-          txn.amount || 0,
-          txn.account || "N/A",
-          txn.vendor || "N/A",
-          txn.purpose || "N/A",
-          txn.addedBy?.toString() || "N/A",
-          txn.createdAt ? new Date(txn.createdAt).toLocaleTimeString() : "N/A",
-        ].map((text) => ({ content: text })),
+      // Header row
+      headers.map(header => ({
+        content: header,
+        bold: true,
       })),
+      // Data rows
+      ...transactions.map((txn) => ([
+        new Date(txn.date).toLocaleDateString(),
+        txn.type || "N/A",
+        txn.amount?.toString() || "0",
+        txn.account || "N/A",
+        txn.vendor || "N/A",
+        txn.purpose || "N/A",
+        txn.addedBy?.toString() || "N/A",
+        txn.createdAt ? new Date(txn.createdAt).toLocaleTimeString() : "N/A",
+      ])),
     ];
-
-    const requests = [
+    
+    // Step 3: First, add a title paragraph at the beginning of the document
+    const titleRequests = [
       {
         insertText: {
-          location: { index: 0 },
-          text: `${docTitle}`
-        }
+          location: {
+            index: 1, // The first valid insertion point in a new document
+          },
+          text: `${docTitle}\n\n`, // Add some space after the title
+        },
       },
       {
-        insertTable: {
-          rows: tableRows.length,
-          columns: headers.length,
-          location: {
-            index: 1 + docTitle.length + 2, // rough offset
+        updateParagraphStyle: {
+          range: {
+            startIndex: 1,
+            endIndex: 1 + docTitle.length,
           },
+          paragraphStyle: {
+            namedStyleType: "HEADING_1",
+          },
+          fields: "namedStyleType",
         },
       },
     ];
-
-    // Insert table cell content
-    let startIndex = docTitle.length + 2; // index after title
-    let cellIndex = 0;
-
-    for (const row of tableRows) {
-      for (const cell of row.tableCells) {
-        requests.push({
-          insertText: {
-            text: cell.content.toString(),
-            location: { index: ++startIndex },
-          },
-        });
-
-        // Optional: bold header
-        if (cell.bold) {
-          requests.push({
+    
+    // Apply the title updates
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: titleRequests,
+      },
+    });
+    
+    // Step 4: Get the document to calculate the current end index
+    const document = await docs.documents.get({
+      documentId,
+    });
+    
+    // Find the end of the document content
+    const endIndex = document.data.body.content[0].endIndex;
+    
+    // Step 5: Create the table structure
+    const createTableRequest = {
+      insertTable: {
+        rows: tableRows.length,
+        columns: headers.length,
+        location: {
+          index: endIndex - 1, // Insert at the end of the document
+        },
+      },
+    };
+    
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: [createTableRequest],
+      },
+    });
+    
+    // Step 6: Get updated document to find table cell locations
+    const updatedDoc = await docs.documents.get({
+      documentId,
+    });
+    
+    // Find table in the document
+    const tableElement = updatedDoc.data.body.content.find(
+      (element) => element.table !== undefined
+    );
+    
+    if (!tableElement || !tableElement.table) {
+      throw new Error("Could not find the created table in the document");
+    }
+    
+    // Step 7: Populate the table with data
+    const tableCellRequests = [];
+    
+    // Iterate through each row in our data
+    for (let rowIndex = 0; rowIndex < tableRows.length; rowIndex++) {
+      const rowData = tableRows[rowIndex];
+      const tableRow = tableElement.table.tableRows[rowIndex];
+      
+      // For header row (special case)
+      if (rowIndex === 0) {
+        for (let colIndex = 0; colIndex < headers.length; colIndex++) {
+          const cell = tableRow.tableCells[colIndex];
+          const cellContent = rowData[colIndex].content;
+          const startIndex = cell.content[0].paragraph.elements[0].startIndex;
+          const endIndex = cell.content[0].paragraph.elements[0].endIndex;
+          
+          // Insert text
+          tableCellRequests.push({
+            insertText: {
+              location: { index: startIndex },
+              text: cellContent,
+            },
+          });
+          
+          // Bold the header
+          tableCellRequests.push({
             updateTextStyle: {
               range: {
                 startIndex,
-                endIndex: startIndex + cell.content.length,
+                endIndex: startIndex + cellContent.length,
               },
               textStyle: { bold: true },
               fields: "bold",
             },
           });
         }
-
-        startIndex += cell.content.length;
+      } else {
+        // For data rows
+        for (let colIndex = 0; colIndex < headers.length; colIndex++) {
+          const cell = tableRow.tableCells[colIndex];
+          const cellContent = rowData[colIndex];
+          const startIndex = cell.content[0].paragraph.elements[0].startIndex;
+          
+          tableCellRequests.push({
+            insertText: {
+              location: { index: startIndex },
+              text: cellContent,
+            },
+          });
+        }
       }
     }
-
-    await docs.documents.batchUpdate({
-      documentId,
-      requestBody: { requests },
-    });
-
+    
+    // Apply the cell content updates
+    if (tableCellRequests.length > 0) {
+      await docs.documents.batchUpdate({
+        documentId,
+        requestBody: {
+          requests: tableCellRequests,
+        },
+      });
+    }
+    
     logger.info(`Transaction doc created successfully: ${docTitle}`);
     return { success: true, documentId };
-
+    
   } catch (error) {
     logger.error("Failed to create transaction document:", error);
-    throw new Error("Google Docs sync failed");
+    throw new Error(`Google Docs sync failed: ${error.message}`);
   }
 }
 
-
-export default generateDailyReport
+export default generateDailyReport;
