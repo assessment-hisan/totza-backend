@@ -12,7 +12,6 @@ export async function generateDailyReport() {
   const todayEnd = new Date(now.setHours(23, 59, 59, 999));
   const dateString = new Date().toISOString().split("T")[0];
   const docTitle = `Transaction Report - ${dateString}`;
- 
 
   try {
     const auth = getGoogleAuthClient();
@@ -33,7 +32,8 @@ export async function generateDailyReport() {
       return { success: false, message: "No transactions to sync" };
     }
     
-    // Step 1: Create an empty document with title
+    // STEP 1: Create an empty document
+    logger.info("Creating new Google Doc...");
     const createResponse = await docs.documents.create({
       requestBody: {
         title: docTitle,
@@ -41,9 +41,11 @@ export async function generateDailyReport() {
     });
     
     const documentId = createResponse.data.documentId;
+    logger.info(`Created document with ID: ${documentId}`);
     
     // If a parent folder is specified, move the document to that folder
     if (process.env.GOOGLE_REPORTS_FOLDER_ID) {
+      logger.info(`Moving document to folder ${process.env.GOOGLE_REPORTS_FOLDER_ID}`);
       await drive.files.update({
         fileId: documentId,
         addParents: process.env.GOOGLE_REPORTS_FOLDER_ID,
@@ -51,7 +53,17 @@ export async function generateDailyReport() {
       });
     }
     
-    // Step 2: Define the table structure
+    // STEP 2: Get the document to understand its structure
+    logger.info("Fetching document structure...");
+    const doc = await docs.documents.get({
+      documentId,
+    });
+    
+    // A new Google Doc always has a default paragraph at the beginning
+    // We'll use this to insert our content
+    
+    // STEP 3: Prepare the content
+    // Define our table headers
     const headers = [
       "Date",
       "Type",
@@ -63,118 +75,73 @@ export async function generateDailyReport() {
       "Time",
     ];
     
-    // Create row data for the table
-    const tableRows = [
-      // Header row
-      headers.map(header => ({
-        content: header,
-        bold: true,
-      })),
-      // Data rows
-      ...transactions.map((txn) => ([
-        new Date(txn.date).toLocaleDateString(),
-        txn.type || "N/A",
-        txn.amount?.toString() || "0",
-        txn.account || "N/A",
-        txn.vendor || "N/A",
-        txn.purpose || "N/A",
-        txn.addedBy?.toString() || "N/A",
-        txn.createdAt ? new Date(txn.createdAt).toLocaleTimeString() : "N/A",
-      ])),
-    ];
+    // Create a batch of requests to build our document
+    const requests = [];
     
-    // Step 3: First, add a title paragraph at the beginning of the document
-    const titleRequests = [
-      {
-        insertText: {
-          location: {
-            index: 1, // The first valid insertion point in a new document
-          },
-          text: `${docTitle}\n\n`, // Add some space after the title
+    // First request: Add the title (at the document's first paragraph)
+    requests.push({
+      insertText: {
+        location: {
+          index: 1, // The first paragraph in a new document always starts at index 1
         },
+        text: docTitle,
       },
-      {
-        updateParagraphStyle: {
-          range: {
-            startIndex: 1,
-            endIndex: 1 + docTitle.length,
-          },
-          paragraphStyle: {
-            namedStyleType: "HEADING_1",
-          },
-          fields: "namedStyleType",
+    });
+    
+    // Format the title as a heading
+    requests.push({
+      updateParagraphStyle: {
+        range: {
+          startIndex: 1,
+          endIndex: 1 + docTitle.length,
         },
-      },
-    ];
-    
-    // Apply the title updates
-    await docs.documents.batchUpdate({
-      documentId,
-      requestBody: {
-        requests: titleRequests,
+        paragraphStyle: {
+          namedStyleType: "HEADING_1",
+        },
+        fields: "namedStyleType",
       },
     });
     
-    // Step 4: Get the document to calculate the current end index
-    const document = await docs.documents.get({
-      documentId,
-    });
-    
-    // Find the end of the document content
-    const endIndex = document.data.body.content[0].endIndex;
-    
-    // Step 5: Create the table structure
-    // Make sure we're inserting at a valid paragraph position
-    // For Google Docs API, we need to make sure we're inserting at a position within a paragraph
-    // The safest approach is to first insert a paragraph break, then insert the table at that position
-    
-    // First, add a paragraph where we want to insert the table
-    await docs.documents.batchUpdate({
-      documentId,
-      requestBody: {
-        requests: [{
-          insertText: {
-            location: {
-              index: endIndex - 1, // Insert at the end of the document
-            },
-            text: "\n", // Add a newline to create a valid paragraph position
-          },
-        }],
+    // Add a couple of line breaks after the title
+    requests.push({
+      insertText: {
+        location: {
+          index: 1 + docTitle.length,
+        },
+        text: "\n\n",
       },
     });
     
-    // Get the document again to find the updated position
-    const docAfterNewline = await docs.documents.get({
-      documentId,
-    });
+    // The current end index will be: 1 (start) + docTitle.length + 2 ("\n\n")
+    const tableStartIndex = 1 + docTitle.length + 2;
     
-    // Find the new end of the document
-    const newEndIndex = docAfterNewline.data.body.content[0].endIndex;
-    
-    // Now insert the table at this valid position
-    const createTableRequest = {
+    // Insert a table with headers and data rows
+    requests.push({
       insertTable: {
-        rows: tableRows.length,
+        rows: transactions.length + 1, // +1 for header row
         columns: headers.length,
         location: {
-          index: newEndIndex - 1, // Insert at the end of the document
+          index: tableStartIndex,
         },
-      },
-    };
-    
-    await docs.documents.batchUpdate({
-      documentId,
-      requestBody: {
-        requests: [createTableRequest],
       },
     });
     
-    // Step 6: Get updated document to find table cell locations
+    // Apply all these initial structural changes
+    logger.info("Applying document structure...");
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests,
+      },
+    });
+    
+    // STEP 4: Now get the updated document with the table structure
+    logger.info("Fetching updated document with table...");
     const updatedDoc = await docs.documents.get({
       documentId,
     });
     
-    // Find table in the document
+    // Find the table in the document
     const tableElement = updatedDoc.data.body.content.find(
       (element) => element.table !== undefined
     );
@@ -183,94 +150,106 @@ export async function generateDailyReport() {
       throw new Error("Could not find the created table in the document");
     }
     
-    // Step 7: Populate the table with data
+    // STEP 5: Populate the table cells with our data
     const tableCellRequests = [];
     
-    // Iterate through each row in our data
-    for (let rowIndex = 0; rowIndex < tableRows.length; rowIndex++) {
-      const rowData = tableRows[rowIndex];
-      const tableRow = tableElement.table.tableRows[rowIndex];
-      
-      // For header row (special case)
-      if (rowIndex === 0) {
-        for (let colIndex = 0; colIndex < headers.length; colIndex++) {
-          const cell = tableRow.tableCells[colIndex];
-          // Check if the cell has content and paragraph elements
-          if (!cell.content || !cell.content[0] || !cell.content[0].paragraph || !cell.content[0].paragraph.elements) {
-            logger.warn(`Missing cell structure at row ${rowIndex}, column ${colIndex}`);
-            continue;
-          }
-          
-          // Some cells might have empty elements
-          if (cell.content[0].paragraph.elements.length === 0) {
-            logger.warn(`Empty paragraph elements at row ${rowIndex}, column ${colIndex}`);
-            continue;
-          }
-          
-          const cellContent = rowData[colIndex].content;
-          const startIndex = cell.content[0].paragraph.elements[0].startIndex;
-          
-          // Insert text
-          tableCellRequests.push({
-            insertText: {
-              location: { index: startIndex },
-              text: cellContent,
-            },
-          });
-          
-          // Bold the header
-          tableCellRequests.push({
-            updateTextStyle: {
-              range: {
-                startIndex,
-                endIndex: startIndex + cellContent.length,
-              },
-              textStyle: { bold: true },
-              fields: "bold",
-            },
-          });
+    // Helper function to safely get cell start index
+    function getCellStartIndex(row, col) {
+      try {
+        const cell = tableElement.table.tableRows[row].tableCells[col];
+        if (cell && cell.content && cell.content[0] && 
+            cell.content[0].paragraph && cell.content[0].paragraph.elements && 
+            cell.content[0].paragraph.elements[0]) {
+          return cell.content[0].paragraph.elements[0].startIndex;
         }
-      } else {
-        // For data rows
-        for (let colIndex = 0; colIndex < headers.length; colIndex++) {
-          const cell = tableRow.tableCells[colIndex];
-          // Check if the cell has content and paragraph elements
-          if (!cell.content || !cell.content[0] || !cell.content[0].paragraph || !cell.content[0].paragraph.elements) {
-            logger.warn(`Missing cell structure at row ${rowIndex}, column ${colIndex}`);
-            continue;
-          }
-          
-          // Some cells might have empty elements
-          if (cell.content[0].paragraph.elements.length === 0) {
-            logger.warn(`Empty paragraph elements at row ${rowIndex}, column ${colIndex}`);
-            continue;
-          }
-          
-          const cellContent = rowData[colIndex];
-          const startIndex = cell.content[0].paragraph.elements[0].startIndex;
-          
-          tableCellRequests.push({
-            insertText: {
-              location: { index: startIndex },
-              text: cellContent,
-            },
-          });
-        }
+        logger.warn(`Cannot find start index for cell at row ${row}, col ${col}`);
+        return null;
+      } catch (err) {
+        logger.warn(`Error getting cell index at row ${row}, col ${col}: ${err.message}`);
+        return null;
       }
     }
     
-    // Apply the cell content updates
-    if (tableCellRequests.length > 0) {
-      await docs.documents.batchUpdate({
-        documentId,
-        requestBody: {
-          requests: tableCellRequests,
+    // Populate header row
+    logger.info("Populating table headers...");
+    for (let col = 0; col < headers.length; col++) {
+      const startIndex = getCellStartIndex(0, col);
+      if (startIndex === null) continue;
+      
+      // Insert header text
+      tableCellRequests.push({
+        insertText: {
+          location: { index: startIndex },
+          text: headers[col],
+        },
+      });
+      
+      // Make header bold
+      tableCellRequests.push({
+        updateTextStyle: {
+          range: {
+            startIndex,
+            endIndex: startIndex + headers[col].length,
+          },
+          textStyle: { bold: true },
+          fields: "bold",
         },
       });
     }
     
+    // Populate data rows
+    logger.info(`Populating ${transactions.length} transaction rows...`);
+    for (let row = 0; row < transactions.length; row++) {
+      const txn = transactions[row];
+      const rowData = [
+        new Date(txn.date).toLocaleDateString(),
+        txn.type || "N/A",
+        txn.amount?.toString() || "0",
+        txn.account || "N/A",
+        txn.vendor || "N/A",
+        txn.purpose || "N/A",
+        txn.addedBy?.toString() || "N/A",
+        txn.createdAt ? new Date(txn.createdAt).toLocaleTimeString() : "N/A",
+      ];
+      
+      for (let col = 0; col < rowData.length; col++) {
+        // Add 1 to row index because row 0 is the header
+        const startIndex = getCellStartIndex(row + 1, col);
+        if (startIndex === null) continue;
+        
+        tableCellRequests.push({
+          insertText: {
+            location: { index: startIndex },
+            text: rowData[col],
+          },
+        });
+      }
+    }
+    
+    // Apply all cell content in batches to avoid API limits
+    const BATCH_SIZE = 100;
+    logger.info(`Applying ${tableCellRequests.length} cell updates in batches...`);
+    
+    for (let i = 0; i < tableCellRequests.length; i += BATCH_SIZE) {
+      const batchRequests = tableCellRequests.slice(i, i + BATCH_SIZE);
+      
+      await docs.documents.batchUpdate({
+        documentId,
+        requestBody: {
+          requests: batchRequests,
+        },
+      });
+      
+      logger.info(`Applied batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(tableCellRequests.length/BATCH_SIZE)}`);
+    }
+    
     logger.info(`Transaction doc created successfully: ${docTitle}`);
-    return { success: true, documentId };
+    
+    return { 
+      success: true, 
+      documentId,
+      url: `https://docs.google.com/document/d/${documentId}/edit` 
+    };
     
   } catch (error) {
     logger.error("Failed to create transaction document:", error);
