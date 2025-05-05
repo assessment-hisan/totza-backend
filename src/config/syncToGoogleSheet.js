@@ -63,7 +63,7 @@ async function syncToGoogleSheet() {
         logger.error("Database query failed:", dbError);
         throw new Error("Failed to fetch transactions from database");
       }
-      
+       console.log(transactions)
       // Prepare data with validation
       if (!Array.isArray(transactions)) {
         throw new Error("Transactions data is not in expected format");
