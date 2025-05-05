@@ -12,6 +12,7 @@ export async function generateDailyReport() {
   const todayEnd = new Date(now.setHours(23, 59, 59, 999));
   const dateString = new Date().toISOString().split("T")[0];
   const docTitle = `Transaction Report - ${dateString}`;
+ 
 
   try {
     const auth = getGoogleAuthClient();
@@ -123,12 +124,40 @@ export async function generateDailyReport() {
     const endIndex = document.data.body.content[0].endIndex;
     
     // Step 5: Create the table structure
+    // Make sure we're inserting at a valid paragraph position
+    // For Google Docs API, we need to make sure we're inserting at a position within a paragraph
+    // The safest approach is to first insert a paragraph break, then insert the table at that position
+    
+    // First, add a paragraph where we want to insert the table
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: [{
+          insertText: {
+            location: {
+              index: endIndex - 1, // Insert at the end of the document
+            },
+            text: "\n", // Add a newline to create a valid paragraph position
+          },
+        }],
+      },
+    });
+    
+    // Get the document again to find the updated position
+    const docAfterNewline = await docs.documents.get({
+      documentId,
+    });
+    
+    // Find the new end of the document
+    const newEndIndex = docAfterNewline.data.body.content[0].endIndex;
+    
+    // Now insert the table at this valid position
     const createTableRequest = {
       insertTable: {
         rows: tableRows.length,
         columns: headers.length,
         location: {
-          index: endIndex - 1, // Insert at the end of the document
+          index: newEndIndex - 1, // Insert at the end of the document
         },
       },
     };
@@ -166,9 +195,20 @@ export async function generateDailyReport() {
       if (rowIndex === 0) {
         for (let colIndex = 0; colIndex < headers.length; colIndex++) {
           const cell = tableRow.tableCells[colIndex];
+          // Check if the cell has content and paragraph elements
+          if (!cell.content || !cell.content[0] || !cell.content[0].paragraph || !cell.content[0].paragraph.elements) {
+            logger.warn(`Missing cell structure at row ${rowIndex}, column ${colIndex}`);
+            continue;
+          }
+          
+          // Some cells might have empty elements
+          if (cell.content[0].paragraph.elements.length === 0) {
+            logger.warn(`Empty paragraph elements at row ${rowIndex}, column ${colIndex}`);
+            continue;
+          }
+          
           const cellContent = rowData[colIndex].content;
           const startIndex = cell.content[0].paragraph.elements[0].startIndex;
-          const endIndex = cell.content[0].paragraph.elements[0].endIndex;
           
           // Insert text
           tableCellRequests.push({
@@ -194,6 +234,18 @@ export async function generateDailyReport() {
         // For data rows
         for (let colIndex = 0; colIndex < headers.length; colIndex++) {
           const cell = tableRow.tableCells[colIndex];
+          // Check if the cell has content and paragraph elements
+          if (!cell.content || !cell.content[0] || !cell.content[0].paragraph || !cell.content[0].paragraph.elements) {
+            logger.warn(`Missing cell structure at row ${rowIndex}, column ${colIndex}`);
+            continue;
+          }
+          
+          // Some cells might have empty elements
+          if (cell.content[0].paragraph.elements.length === 0) {
+            logger.warn(`Empty paragraph elements at row ${rowIndex}, column ${colIndex}`);
+            continue;
+          }
+          
           const cellContent = rowData[colIndex];
           const startIndex = cell.content[0].paragraph.elements[0].startIndex;
           
