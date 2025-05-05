@@ -55,31 +55,35 @@ async function syncToGoogleSheet() {
             $gte: todayStart,
             $lte: todayEnd
           }
-        }).sort({ createdAt: 1 }).lean(); // Using lean() for better performance
+        })
+        .populate('account', 'name') // Populate the account field with just the name
+        .sort({ createdAt: 1 })
+        .lean(); // Using lean() for better performance
       } catch (dbError) {
         logger.error("Database query failed:", dbError);
         throw new Error("Failed to fetch transactions from database");
       }
-
+      
       // Prepare data with validation
       if (!Array.isArray(transactions)) {
         throw new Error("Transactions data is not in expected format");
       }
-
+      
       const headers = [
-        "Id", "Type", "Amount", "Account", "Vendor", 
+        "Id", "Date", "Type", "Amount", "Account", "Vendor", 
         "Purpose", "Added By", "Created At"
       ];
-
+      
       const rows = transactions.map(doc => {
         if (!doc._id || !doc.type || !doc.amount) {
           logger.warn("Incomplete transaction record:", doc);
         }
         return [
           doc._id?.toString() || "N/A",
+          doc.date.toLocaleDateString('en-US', { weekday: 'long' }),
           doc.type || "N/A",
           doc.amount || 0,
-          doc.account || "N/A",
+          doc.account?.name || "N/A", // Access the populated account name
           doc.vendor || "N/A",
           doc.purpose || "N/A",
           doc.addedBy?.toString() || "N/A",
