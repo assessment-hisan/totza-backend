@@ -18,7 +18,7 @@ export function getGoogleAuthClient() {
     // In production (Render.com), use the path where you've uploaded the file
     const keyFilePath = process.env.NODE_ENV === "production" 
       ? process.env.GOOGLE_APPLICATION_CREDENTIALS // Path on Render.com
-      : path.join(process.cwd(), "config", "c:\Users\RIDEON\Downloads\totza-backup.json"); // Local path
+      : path.join(process.cwd(), "config", "../../googleCredentials"); // Local path
     
     console.log(`Using credentials file at: ${keyFilePath}`);
     

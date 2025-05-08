@@ -16,22 +16,23 @@ export async function generateDailyReport() {
   try {
     const auth = getGoogleAuthClient();
     const authClient = await auth.getClient();
-    
+
     const docs = google.docs({ version: "v1", auth: authClient });
     const drive = google.drive({ version: "v3", auth: authClient });
-    
+
     // Fetch transactions for today
     const transactions = await CompanyTransactions.find({
       createdAt: { $gte: todayStart, $lte: todayEnd },
-    })
+    }).populate('account', 'name')
+      .populate('addedBy', 'name')
       .sort({ createdAt: 1 })
       .lean();
-    
+
     if (!transactions.length) {
       logger.warn("No transactions found for today.");
       return { success: false, message: "No transactions to sync" };
     }
-    
+  console.log(transactions)
     // STEP 1: Create an empty document
     logger.info("Creating new Google Doc...");
     const createResponse = await docs.documents.create({
@@ -39,10 +40,10 @@ export async function generateDailyReport() {
         title: docTitle,
       },
     });
-    
+
     const documentId = createResponse.data.documentId;
     logger.info(`Created document with ID: ${documentId}`);
-    
+
     // If a parent folder is specified, move the document to that folder
     if (process.env.GOOGLE_REPORTS_FOLDER_ID) {
       logger.info(`Moving document to folder ${process.env.GOOGLE_REPORTS_FOLDER_ID}`);
@@ -52,16 +53,16 @@ export async function generateDailyReport() {
         fields: 'id, parents',
       });
     }
-    
+
     // STEP 2: Get the document to understand its structure
     logger.info("Fetching document structure...");
     const doc = await docs.documents.get({
       documentId,
     });
-    
+
     // A new Google Doc always has a default paragraph at the beginning
     // We'll use this to insert our content
-    
+
     // STEP 3: Prepare the content
     // Define our table headers
     const headers = [
@@ -74,10 +75,10 @@ export async function generateDailyReport() {
       "Added By",
       "Time",
     ];
-    
+
     // Create a batch of requests to build our document
     const requests = [];
-    
+
     // First request: Add the title (at the document's first paragraph)
     requests.push({
       insertText: {
@@ -87,7 +88,7 @@ export async function generateDailyReport() {
         text: docTitle,
       },
     });
-    
+
     // Format the title as a heading
     requests.push({
       updateParagraphStyle: {
@@ -101,7 +102,7 @@ export async function generateDailyReport() {
         fields: "namedStyleType",
       },
     });
-    
+
     // Add a couple of line breaks after the title
     requests.push({
       insertText: {
@@ -111,10 +112,10 @@ export async function generateDailyReport() {
         text: "\n\n",
       },
     });
-    
+
     // The current end index will be: 1 (start) + docTitle.length + 2 ("\n\n")
     const tableStartIndex = 1 + docTitle.length + 2;
-    
+
     // Insert a table with headers and data rows
     requests.push({
       insertTable: {
@@ -125,7 +126,7 @@ export async function generateDailyReport() {
         },
       },
     });
-    
+
     // Apply all these initial structural changes
     logger.info("Applying document structure...");
     await docs.documents.batchUpdate({
@@ -134,32 +135,32 @@ export async function generateDailyReport() {
         requests,
       },
     });
-    
+
     // STEP 4: Now get the updated document with the table structure
     logger.info("Fetching updated document with table...");
     const updatedDoc = await docs.documents.get({
       documentId,
     });
-    
+
     // Find the table in the document
     const tableElement = updatedDoc.data.body.content.find(
       (element) => element.table !== undefined
     );
-    
+
     if (!tableElement || !tableElement.table) {
       throw new Error("Could not find the created table in the document");
     }
-    
+
     // STEP 5: Populate the table cells with our data
     const tableCellRequests = [];
-    
+
     // Helper function to safely get cell start index
     function getCellStartIndex(row, col) {
       try {
         const cell = tableElement.table.tableRows[row].tableCells[col];
-        if (cell && cell.content && cell.content[0] && 
-            cell.content[0].paragraph && cell.content[0].paragraph.elements && 
-            cell.content[0].paragraph.elements[0]) {
+        if (cell && cell.content && cell.content[0] &&
+          cell.content[0].paragraph && cell.content[0].paragraph.elements &&
+          cell.content[0].paragraph.elements[0]) {
           return cell.content[0].paragraph.elements[0].startIndex;
         }
         logger.warn(`Cannot find start index for cell at row ${row}, col ${col}`);
@@ -169,13 +170,13 @@ export async function generateDailyReport() {
         return null;
       }
     }
-    
+
     // Populate header row
     logger.info("Populating table headers...");
     for (let col = 0; col < headers.length; col++) {
       const startIndex = getCellStartIndex(0, col);
       if (startIndex === null) continue;
-      
+
       // Insert header text
       tableCellRequests.push({
         insertText: {
@@ -183,7 +184,7 @@ export async function generateDailyReport() {
           text: headers[col],
         },
       });
-      
+
       // Make header bold
       tableCellRequests.push({
         updateTextStyle: {
@@ -196,7 +197,7 @@ export async function generateDailyReport() {
         },
       });
     }
-    
+
     // Populate data rows
     logger.info(`Populating ${transactions.length} transaction rows...`);
     for (let row = 0; row < transactions.length; row++) {
@@ -211,12 +212,12 @@ export async function generateDailyReport() {
         txn.addedBy?.toString() || "N/A",
         txn.createdAt ? new Date(txn.createdAt).toLocaleTimeString() : "N/A",
       ];
-      
+
       for (let col = 0; col < rowData.length; col++) {
         // Add 1 to row index because row 0 is the header
         const startIndex = getCellStartIndex(row + 1, col);
         if (startIndex === null) continue;
-        
+
         tableCellRequests.push({
           insertText: {
             location: { index: startIndex },
@@ -225,32 +226,32 @@ export async function generateDailyReport() {
         });
       }
     }
-    
+
     // Apply all cell content in batches to avoid API limits
     const BATCH_SIZE = 100;
     logger.info(`Applying ${tableCellRequests.length} cell updates in batches...`);
-    
+
     for (let i = 0; i < tableCellRequests.length; i += BATCH_SIZE) {
       const batchRequests = tableCellRequests.slice(i, i + BATCH_SIZE);
-      
+
       await docs.documents.batchUpdate({
         documentId,
         requestBody: {
           requests: batchRequests,
         },
       });
-      
-      logger.info(`Applied batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(tableCellRequests.length/BATCH_SIZE)}`);
+
+      logger.info(`Applied batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(tableCellRequests.length / BATCH_SIZE)}`);
     }
-    
+
     logger.info(`Transaction doc created successfully: ${docTitle}`);
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       documentId,
-      url: `https://docs.google.com/document/d/${documentId}/edit` 
+      url: `https://docs.google.com/document/d/${documentId}/edit`
     };
-    
+
   } catch (error) {
     logger.error("Failed to create transaction document:", error);
     throw new Error(`Google Docs sync failed: ${error.message}`);
