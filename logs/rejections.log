@@ -1,0 +1,5 @@
+2025-05-08 07:26:41 [[31merror[39m]: 	unhandledRejection: Failed to sync after 3 attempts. Last error: Failed to initialize Google Auth: Credentials file not found at: D:\hanish\totza\googleCredentials
+Error: Failed to sync after 3 attempts. Last error: Failed to initialize Google Auth: Credentials file not found at: D:\hanish\totza\googleCredentials
+    at syncToGoogleSheet (file:///D:/hanish/totza/totza-backend/src/config/syncToGoogleSheet.js:143:9)
+Error: Failed to sync after 3 attempts. Last error: Failed to initialize Google Auth: Credentials file not found at: D:\hanish\totza\googleCredentials
+    at syncToGoogleSheet (file:///D:/hanish/totza/totza-backend/src/config/syncToGoogleSheet.js:143:9)
