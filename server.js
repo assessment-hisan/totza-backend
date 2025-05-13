@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import authRoutes from "./src/routes/auth.js";
 import personal from "./src/routes/personalTransactionRoutes.js";
 import company from "./src/routes/companyTransactionRoutes.js";
+import due from "./src/routes/dueTransactions.js"
 import accountCategory from "./src/routes/small/accountCategoryRoutes.js";
 import item from './src/routes/small/itemRoutes.js';
 import Vendor from './src/routes/small/vendorRoutes.js';
@@ -24,6 +25,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/personal', personal);
 app.use('/company', company);
+app.use('/due', due);
 app.use('/account', accountCategory);
 app.use('/vendor', Vendor);
 app.use('/item', item);

@@ -1,11 +1,11 @@
 import CompanyTransaction from '../models/CompanyTransaction.js';
 import AccountCategory from '../models/AccountCategory.js';
 import PersonalTransaction from '../models/PersonalTransaction.js';
-import syncToGoogleSheet from '../config/syncToGoogleSheet.js';
+// import syncToGoogleSheet from '../config/syncToGoogleSheet.js';
 
 export const createCompanyTransaction = async (req, res) => {
   try {
-    const { type, amount, linkedDues } = req.body;
+    const { type, amount, linkedDue } = req.body;
     const cleanedBody = { ...req.body };
 
     // Remove empty string for account field to prevent MongoDB casting error
@@ -18,22 +18,7 @@ export const createCompanyTransaction = async (req, res) => {
       throw new Error('Due date is required for Due transactions');
     }
 
-    // Validate payment transaction requirements
-    if (linkedDues && linkedDues.length > 0) {
-      if (type !== 'Debit') {
-        throw new Error('Only Debit transactions can be linked to Due transactions');
-      }
-      
-      // Verify all linked dues exist and are valid
-      const existingDues = await CompanyTransaction.find({
-        _id: { $in: linkedDues },
-        type: 'Due'
-      });
-      
-      if (existingDues.length !== linkedDues.length) {
-        throw new Error('One or more linked Due transactions are invalid');
-      }
-    }
+   
 
     const transaction = new CompanyTransaction({
       ...cleanedBody,
@@ -42,25 +27,7 @@ export const createCompanyTransaction = async (req, res) => {
 
     await transaction.save();
 
-    // Handle Due payment linking
-    if (linkedDues && linkedDues.length > 0) {
-      await Promise.all(linkedDues.map(async (dueId) => {
-        const due = await CompanyTransaction.findById(dueId);
-        if (due) {
-          // Add payment record to the Due transaction
-          due.payments.push({
-            amount: amount,
-            paymentTransaction: transaction._id
-          });
-          
-          // Update Due status based on payments
-          const paidAmount = due.payments.reduce((sum, p) => sum + p.amount, 0);
-          due.status = paidAmount >= due.amount ? 'Fully Paid' : 'Partially Paid';
-          
-          await due.save();
-        }
-      }));
-    }
+    
 
     // Handle personal transaction creation for debit transactions
     if (transaction.type === 'Debit' && transaction.account) {
@@ -77,9 +44,22 @@ export const createCompanyTransaction = async (req, res) => {
         });
         await personalTx.save();
       }
+    }else if (transaction.type === 'Credit' && transaction.account) {
+      const accountCategory = await AccountCategory.findById(transaction.account);
+      if (accountCategory?.linkedUser) {
+        const personalTx = new PersonalTransaction({
+          user: accountCategory.linkedUser,
+          purpose: transaction.purpose,
+          amount: transaction.amount,
+          type: 'Debit',
+          fileUrl: transaction.files?.[0] || '',
+          companyTransaction: transaction._id
+        });
+        await personalTx.save();
+      }
     }
 
-    syncToGoogleSheet();
+    // syncToGoogleSheet();
     res.status(201).json(transaction);
   } catch (err) {
     console.error(err);
@@ -102,9 +82,7 @@ export const createBulkCompanyTransactions = async (req, res) => {
         throw new Error('Due date is required for Due transactions');
       }
       
-      if (tx.linkedDues && tx.linkedDues.length > 0 && tx.type !== 'Debit') {
-        throw new Error('Only Debit transactions can be linked to Due transactions');
-      }
+    
     }
 
     // Prepare transactions with addedBy and clean empty account fields
@@ -120,22 +98,7 @@ export const createBulkCompanyTransactions = async (req, res) => {
     // Process Due payments and personal transactions
     await Promise.all(createdTransactions.map(async (transaction) => {
       // Handle Due payment linking
-      if (transaction.linkedDues && transaction.linkedDues.length > 0) {
-        await Promise.all(transaction.linkedDues.map(async (dueId) => {
-          const due = await CompanyTransaction.findById(dueId);
-          if (due) {
-            due.payments.push({
-              amount: transaction.amount,
-              paymentTransaction: transaction._id
-            });
-            
-            const paidAmount = due.payments.reduce((sum, p) => sum + p.amount, 0);
-            due.status = paidAmount >= due.amount ? 'Fully Paid' : 'Partially Paid';
-            
-            await due.save();
-          }
-        }));
-      }
+  
 
       // Handle personal transaction creation for debit transactions
       if (transaction.type === 'Debit' && transaction.account) {
@@ -152,10 +115,23 @@ export const createBulkCompanyTransactions = async (req, res) => {
           });
           await personalTx.save();
         }
+      } else if (transaction.type === 'Credit' && transaction.account) {
+        const accountCategory = await AccountCategory.findById(transaction.account);
+        if (accountCategory?.linkedUser) {
+          const personalTx = new PersonalTransaction({
+            user: accountCategory.linkedUser,
+            purpose: transaction.purpose,
+            amount: transaction.amount,
+            type: 'Debit',
+            fileUrl: transaction.files?.[0] || '',
+            companyTransaction: transaction._id
+          });
+          await personalTx.save();
+        }
       }
     }));
 
-    syncToGoogleSheet();
+    // syncToGoogleSheet();
     res.status(201).json({
       message: `${createdTransactions.length} transactions created successfully`,
       count: createdTransactions.length,
@@ -170,6 +146,7 @@ export const createBulkCompanyTransactions = async (req, res) => {
   }
 };
 
+
 export const getCompanyTransactions = async (req, res) => {
   try {
     const { type, status, hasDue } = req.query;
@@ -177,15 +154,15 @@ export const getCompanyTransactions = async (req, res) => {
 
     if (type) query.type = type;
     if (status) query.status = status;
-    if (hasDue === 'true') query.linkedDues = { $exists: true, $not: { $size: 0 } };
-    if (hasDue === 'false') query.linkedDues = { $exists: true, $size: 0 };
+    if (hasDue === 'true') query.linkedDue = { $exists: true, $not: { $size: 0 } };
+    if (hasDue === 'false') query.linkedDue = { $exists: true, $size: 0 };
 
     const transactions = await CompanyTransaction.find(query)
       .sort({ createdAt: -1 })
       .populate('account')
       .populate('vendor')
       .populate('addedBy')
-      .populate('linkedDues')
+      .populate('linkedDue')
       .populate('payments.paymentTransaction');
 
     res.json(transactions);
@@ -203,7 +180,7 @@ export const getRecentCompanyTransactions = async (req, res) => {
       .populate('account')
       .populate('vendor')
       .populate('addedBy')
-      .populate('linkedDues')
+      .populate('linkedDue')
       .populate('payments.paymentTransaction');
     
     res.json(recentTransactions);
@@ -219,11 +196,11 @@ export const deleteCompanyTransaction = async (req, res) => {
     if (!transaction) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
-
+  console.log(transaction.payments)
     // Remove payment references from linked Due transactions
-    if (transaction.linkedDues && transaction.linkedDues.length > 0) {
-      await Promise.all(transaction.linkedDues.map(async (dueId) => {
-        const due = await CompanyTransaction.findById(dueId);
+    if (transaction.linkedDue ) {
+    
+        const due = await CompanyTransaction.findById(transaction.linkedDue);
         if (due) {
           // Remove this payment from the Due's payments array
           due.payments = due.payments.filter(
@@ -237,7 +214,7 @@ export const deleteCompanyTransaction = async (req, res) => {
           
           await due.save();
         }
-      }));
+      
     }
 
     // Delete the transaction
