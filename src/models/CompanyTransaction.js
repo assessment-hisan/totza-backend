@@ -8,7 +8,8 @@ const companyTransaction = new mongoose.Schema({
     required: true
   },
   amount: { type: Number, required: true, min: 0 },
-
+  discount: { type: Number,  min: 0 },
+  
   // Due-specific fields
   dueDate: { type: Date }, // Required when type=Due
   originalDueAmount: { type: Number }, // Original due amount
@@ -39,7 +40,9 @@ const companyTransaction = new mongoose.Schema({
 
   // General transaction details
   account: { type: mongoose.Schema.Types.ObjectId, ref: 'AccountCategory' },
-  vendor: { type: String, trim: true },
+  vendor: {type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' },
+  project: {type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
+  workers : {type: mongoose.Schema.Types.ObjectId, ref: 'worker' },
   items: { type: String, trim: true },
   purpose: { type: String, trim: true },
   files: [{ type: String }],

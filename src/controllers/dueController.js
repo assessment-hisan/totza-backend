@@ -1,46 +1,56 @@
 import mongoose from 'mongoose';
 import CompanyTransaction from '../models/CompanyTransaction.js';
 
+
 // @desc    Get all dues with filters
 // @route   GET /api/dues
 // @access  Private
-export const getDues = async (req, res) => {
+// export const getDues = async (req, res) => {
+//   try {
+//     const { status, fromDate, toDate, page = 1, limit = 10 } = req.query;
+    
+//     const filter = { type: 'Due' };
+//     if (status) filter.status = status;
+//     if (fromDate || toDate) {
+//       filter.dueDate = {};
+//       if (fromDate) filter.dueDate.$gte = new Date(fromDate);
+//       if (toDate) filter.dueDate.$lte = new Date(toDate);
+//     }
+    
+//     const options = {
+//       page: parseInt(page, 10),
+//       limit: parseInt(limit, 10),
+//       sort: { dueDate: 1 },
+//       lean: true
+//     };
+    
+//     const dues = await CompanyTransaction.paginate(filter, options);
+    
+//     res.json({
+//       success: true,
+//       data: dues.docs,
+//       total: dues.totalDocs,
+//       totalPages: dues.totalPages,
+//       currentPage: dues.page
+//     });
+//   } catch (err) {
+//     console.error('Error fetching dues:', err);
+//     res.status(500).json({ 
+//       success: false,
+//       error: 'Server error fetching dues' 
+//     });
+//   }
+// };
+export const getDues = async (req, res) =>{
   try {
-    const { status, fromDate, toDate, page = 1, limit = 10 } = req.query;
-    
-    const filter = { type: 'Due' };
-    if (status) filter.status = status;
-    if (fromDate || toDate) {
-      filter.dueDate = {};
-      if (fromDate) filter.dueDate.$gte = new Date(fromDate);
-      if (toDate) filter.dueDate.$lte = new Date(toDate);
-    }
-    
-    const options = {
-      page: parseInt(page, 10),
-      limit: parseInt(limit, 10),
-      sort: { dueDate: 1 },
-      lean: true
-    };
-    
-    const dues = await CompanyTransaction.paginate(filter, options);
-    
+    const due = await CompanyTransaction.find({ type: 'Due' }).populate("addedBy")
     res.json({
-      success: true,
-      data: dues.docs,
-      total: dues.totalDocs,
-      totalPages: dues.totalPages,
-      currentPage: dues.page
-    });
-  } catch (err) {
-    console.error('Error fetching dues:', err);
-    res.status(500).json({ 
-      success: false,
-      error: 'Server error fetching dues' 
-    });
+      data : due
+    })
+  } catch (error) {
+    console.log(error)
   }
-};
-
+}
 // @desc    Get single due transaction
 // @route   GET /api/dues/:id
 // @access  Private

@@ -1,43 +1,69 @@
-import Vendor from '../../models/Vendor.js';
+// controllers/small/vendorController.js
+import Vendor from "../../models/Vendor.js"
 
-export const addVendor = async (req, res) => {
+// Create a new vendor
+export const createVendor = async (req, res) => {
   try {
-    const { name, description } = req.body;
-    const newVendor = await Vendor.create({
-      name,
-      description,
-      addedBy: req.user.id,
-      collaborators: [req.user.id]
-    });
-    res.status(201).json(newVendor);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to add vendor' });
+    const vendorData = req.body;
+    vendorData.createdBy = req.user._id;
+    
+    const vendor = new Vendor(vendorData);
+    await vendor.save();
+    
+    res.status(201).json(vendor);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 };
 
+// Get all vendors
 export const getVendors = async (req, res) => {
   try {
     const vendors = await Vendor.find();
     res.json(vendors);
-  } catch {
-    res.status(500).json({ error: 'Failed to fetch vendors' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
+// Get vendor by ID
+export const getVendorById = async (req, res) => {
+  try {
+    const vendor = await Vendor.findById(req.params.id);
+    if (!vendor) {
+      return res.status(404).json({ message: 'Vendor not found' });
+    }
+    res.json(vendor);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update vendor
 export const updateVendor = async (req, res) => {
   try {
-    const vendor = await Vendor.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const vendor = await Vendor.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    if (!vendor) {
+      return res.status(404).json({ message: 'Vendor not found' });
+    }
     res.json(vendor);
-  } catch {
-    res.status(500).json({ error: 'Update failed' });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 };
 
+// Delete vendor
 export const deleteVendor = async (req, res) => {
   try {
-    await Vendor.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Vendor deleted' });
-  } catch {
-    res.status(500).json({ error: 'Delete failed' });
+    const vendor = await Vendor.findByIdAndDelete(req.params.id);
+    if (!vendor) {
+      return res.status(404).json({ message: 'Vendor not found' });
+    }
+    res.json({ message: 'Vendor deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };

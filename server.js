@@ -9,6 +9,9 @@ import due from "./src/routes/dueTransactions.js"
 import accountCategory from "./src/routes/small/accountCategoryRoutes.js";
 import item from './src/routes/small/itemRoutes.js';
 import Vendor from './src/routes/small/vendorRoutes.js';
+import projects from "./src/routes/small/projectRoutes.js"
+import worker from "./src/routes/small/workerRoutes.js"
+import vendor from "./src/routes/small/vendorRoutes.js"
 import cron from "node-cron";
 import syncToGoogleSheet from "./src/config/syncToGoogleSheet.js";
 import generateDailyReport from './src/config/generateDailyReport.js';
@@ -29,6 +32,9 @@ app.use('/due', due);
 app.use('/account', accountCategory);
 app.use('/vendor', Vendor);
 app.use('/item', item);
+app.use('/project', projects);
+app.use('/worker', worker);
+app.use('/vendor', vendor)
 
 // Root Route
 app.get('/', (req, res) => {
@@ -49,18 +55,18 @@ function setupScheduledJobs() {
   });
 
   // Generate daily report at 11:45 PM daily (runs after sync)
-  cron.schedule('45 23 * * *', async () => {
-    console.log('📄 Generating daily report...');
-    try {
-      const result = await generateDailyReport();
-      console.log('📝 Daily report created:', result.docUrl);
-    } catch (error) {
-      console.error('❌ Daily report generation failed:', error.message);
-    }
-  }, {
-    scheduled: true,
-    timezone: "Asia/Kolkata" // Adjust to your timezone
-  });
+  // cron.schedule('45 23 * * *', async () => {
+  //   console.log('📄 Generating daily report...');
+  //   try {
+  //     const result = await generateDailyReport();
+  //     console.log('📝 Daily report created:', result.docUrl);
+  //   } catch (error) {
+  //     console.error('❌ Daily report generation failed:', error.message);
+  //   }
+  // }, {
+  //   scheduled: true,
+  //   timezone: "Asia/Kolkata" // Adjust to your timezone
+  // });
 }
 
 
